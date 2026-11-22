@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>لوحة متابعة الفروع والسيارات الواردة — التحليلات الكاملة والمزامنة الحية</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Cairo', sans-serif; }
+    .sold-row { background-color: rgba(16, 185, 129, 0.14) !important; }
+    .sold-row:hover { background-color: rgba(16, 185, 129, 0.22) !important; }
+    .hot-row { border-right: 3px solid #f59e0b; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen transition-colors duration-200" id="bodyEl">
+
+  <!-- Top Header & Sync Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-extrabold text-lg">
+          🚗
+        </div>
+        <div>
+          <h1 class="text-lg font-extrabold text-white">لوحة متابعة الفروع والسيارات الواردة (تحديث مباشر + تحليلات متكاملة)</h1>
+          <p class="text-xs text-slate-400">قراءة حية لورقة "سجل الوارد اليومي" • احتساب 0.5 للمبيعات المشتركة • تحليلات الفروع والتجار والتسعير</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="openAddModal()" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition">
+          + إضافة سيارة
+        </button>
+        <button onclick="exportCSV()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition">
+          تصدير CSV
+        </button>
+        <button onclick="toggleTheme()" id="themeBtn" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition">
+          🌙
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Sync Controls -->
+    <div class="bg-slate-900 border-t border-slate-800/80">
+      <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center gap-2 text-xs">
+        <label class="text-slate-400 font-semibold">رابط Web App (.../exec):</label>
+        <input id="syncUrlInput" type="text" placeholder="https://script.google.com/macros/s/.../exec"
+          class="flex-1 min-w-[240px] px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-sky-500" />
+
+        <label class="text-slate-400 font-semibold">المفتاح السري:</label>
+        <input id="secretKeyInput" type="text" value="Dee"
+          class="w-36 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-sky-500" />
+
+        <button onclick="syncFromUrl()" id="syncBtn" class="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold transition">
+          ☁ مزامنة فورية من الرابط
+        </button>
+
+        <label class="px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/50 text-emerald-300 font-bold cursor-pointer transition">
+          ⬆ رفع CSV
+          <input type="file" accept=".csv" class="hidden" onchange="handleCsvUpload(event)" />
+        </label>
+
+        <label class="flex items-center gap-1.5 text-slate-300 cursor-pointer select-none px-2">
+          <input type="checkbox" id="autoSyncCheckbox" onchange="toggleAutoSync()" class="rounded accent-sky-500" />
+          <span>تحديث تلقائي (30ث)</span>
+        </label>
+      </div>
+
+      <div id="statusBanner" class="hidden max-w-7xl mx-auto px-4 pb-2.5">
+        <div id="statusBannerInner" class="px-3.5 py-2 rounded-lg text-xs font-bold border"></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Main KPI Cards -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="kpiSection"></section>
+
+    <!-- Secondary Pricing & Deal Analytics Strip -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="pricingAnalyticsSection"></section>
+
+    <!-- Salesperson 0.5 Split KPI Table + Actionable Work Queue -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-base font-extrabold text-white">KPI مسؤولي المبيعات (قاعدة احتساب 0.5)</h2>
+            <p class="text-xs text-slate-400">السيارة المشتركة بين اسمين تُحسب بـ 0.5 لكل فرد (مثال: 0.5 + 0.5 = 1.0 منفذة)</p>
+          </div>
+          <span class="px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-bold border border-indigo-500/30">
+            توزيع عادل 0.5
+          </span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-right">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400">
+                <th class="py-2.5 px-2">المسؤول</th>
+                <th class="py-2.5 px-2 text-center">الوارد</th>
+                <th class="py-2.5 px-2 text-center">المنفذ</th>
+                <th class="py-2.5 px-2 text-center">المتاح</th>
+                <th class="py-2.5 px-2 text-center">النسبة</th>
+                <th class="py-2.5 px-2">قيمة التنفيذ</th>
+              </tr>
+            </thead>
+            <tbody id="salespersonTbody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actionable Priorities Card -->
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+        <div>
+          <h2 class="text-base font-extrabold text-white mb-1">أولويات العمل والمتابعة الآن</h2>
+          <p class="text-xs text-slate-400 mb-3">تشخيص مباشر للصفقات الساخنة ونواقص التسعير وأداء الفروع</p>
+          <div id="actionItemsList" class="space-y-2.5 text-xs"></div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <span>الصفوف الخضراء / Sold = منفذة</span>
+          <span id="lastSyncLabel">في انتظار المزامنة</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Branch Analytics Table + Top Dealers Analytics Table -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-base font-extrabold text-white">تحليل أداء الفروع بالتفصيل</h2>
+            <p class="text-xs text-slate-400">مقارنة الوارد، المنفذ، المتاح، نسبة التحويل، وقيمة التنفيذ لكل فرع</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-right">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400">
+                <th class="py-2.5 px-2">الفرع</th>
+                <th class="py-2.5 px-2 text-center">الوارد</th>
+                <th class="py-2.5 px-2 text-center">المنفذ</th>
+                <th class="py-2.5 px-2 text-center">المتاح</th>
+                <th class="py-2.5 px-2 text-center">التحويل</th>
+                <th class="py-2.5 px-2">قيمة التنفيذ</th>
+                <th class="py-2.5 px-2">تقديري المتاح</th>
+              </tr>
+            </thead>
+            <tbody id="branchAnalyticsTbody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-base font-extrabold text-white">تحليل نشاط التجار</h2>
+            <p class="text-xs text-slate-400">أكثر التجار ارتباطاً بالسيارات وإغلاقاً للصفقات</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-right">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400">
+                <th class="py-2.5 px-2">التاجر</th>
+                <th class="py-2.5 px-2 text-center">إجمالي السيارات</th>
+                <th class="py-2.5 px-2 text-center">منفذة</th>
+                <th class="py-2.5 px-2 text-center">متاحة (ساخنة)</th>
+                <th class="py-2.5 px-2">قيمة التنفيذ</th>
+              </tr>
+            </thead>
+            <tbody id="dealersTbody" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Charts Section (4 Charts covering Branch, Salespersons, Status & Pricing Gap) -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <h3 class="text-sm font-extrabold text-white mb-3">السيارات الواردة والمنفذة حسب الفرع</h3>
+        <div class="h-64"><canvas id="branchChart"></canvas></div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <h3 class="text-sm font-extrabold text-white mb-3">أداء مسؤولي المبيعات (الوارد والمنفذ بعد قسمة 0.5)</h3>
+        <div class="h-64"><canvas id="salesChart"></canvas></div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <h3 class="text-sm font-extrabold text-white mb-3">توزيع حالة المخزون (منفذة / متاحة مع تاجر / متاحة بدون تاجر / ناقصة تسعير)</h3>
+        <div class="h-64"><canvas id="statusBreakdownChart"></canvas></div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <h3 class="text-sm font-extrabold text-white mb-3">متوسط التسعير حسب الفرع (التقديري مقابل أعلى سعر تجاري)</h3>
+        <div class="h-64"><canvas id="pricingChart"></canvas></div>
+      </div>
+    </section>
+
+    <!-- Filters & Interactive Cars Table -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-extrabold text-white">سجل السيارات الكامل والتفاعلي</h2>
+          <p class="text-xs text-slate-400" id="tableCountLabel">عرض 0 سيارة</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <input id="searchInput" type="text" oninput="renderAll()" placeholder="بحث باسم السيارة، الموديل، التاجر..."
+            class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 w-56 focus:outline-none focus:border-emerald-500" />
+
+          <select id="branchFilter" onchange="renderAll()" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100">
+            <option value="ALL">كل الفروع</option>
+          </select>
+
+          <select id="spFilter" onchange="renderAll()" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100">
+            <option value="ALL">كل مسؤولي المبيعات</option>
+          </select>
+
+          <select id="dealerFilter" onchange="renderAll()" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100">
+            <option value="ALL">كل التجار</option>
+          </select>
+
+          <select id="statusFilter" onchange="renderAll()" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-100">
+            <option value="ALL">كل الحالات</option>
+            <option value="SOLD">منفذة (Sold)</option>
+            <option value="AVAILABLE">متاحة فقط</option>
+            <option value="HOT">صفقات ساخنة (متاحة مع تاجر)</option>
+            <option value="UNPRICED">ناقصة تسعير</option>
+            <option value="SHARED">مبيعات مشتركة (0.5)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-right">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400">
+              <th class="py-2.5 px-2">#</th>
+              <th class="py-2.5 px-2">التاريخ</th>
+              <th class="py-2.5 px-2">الفرع</th>
+              <th class="py-2.5 px-2">مسؤول المبيعات</th>
+              <th class="py-2.5 px-2">السيارة الواردة</th>
+              <th class="py-2.5 px-2 text-center">الموديل</th>
+              <th class="py-2.5 px-2">الحالة الفنية</th>
+              <th class="py-2.5 px-2">التقديري</th>
+              <th class="py-2.5 px-2">أعلى تجاري</th>
+              <th class="py-2.5 px-2">التنفيذ</th>
+              <th class="py-2.5 px-2">التاجر</th>
+              <th class="py-2.5 px-2 text-center">الحالة</th>
+            </tr>
+          </thead>
+          <tbody id="carsTbody" class="divide-y divide-slate-800/60"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add Car Modal -->
+  <div id="addModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-3 text-xs">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <h3 class="text-sm font-extrabold text-white">إضافة سيارة جديدة</h3>
+        <button onclick="closeAddModal()" class="text-slate-400 hover:text-white text-base">✕</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2.5">
+        <div>
+          <label class="block text-slate-400 mb-1">الفرع</label>
+          <input id="newBranch" type="text" value="مدينة نصر" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">مسؤول المبيعات (افصل بـ / للمشاركة 0.5)</label>
+          <input id="newSp" type="text" placeholder="كريم صبحي / محمود هاشم" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">السيارة الواردة</label>
+          <input id="newCar" type="text" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">الموديل</label>
+          <input id="newYear" type="text" value="2024" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">السعر التقديري</label>
+          <input id="newEst" type="number" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">أعلى سعر تجاري</label>
+          <input id="newComm" type="number" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">اسم التاجر</label>
+          <input id="newDealer" type="text" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">حالة التنفيذ</label>
+          <select id="newSold" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white">
+            <option value="false">متاحة</option>
+            <option value="true">منفذة</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-slate-400 mb-1">حالة السيارة الفنية</label>
+        <input id="newCond" type="text" value="فبريكا بالكامل" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white" />
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="closeAddModal()" class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300">إلغاء</button>
+        <button onclick="saveNewCar()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold">حفظ</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let carsData = [];
+    let autoSyncTimer = null;
+    let branchChartInstance = null;
+    let salesChartInstance = null;
+    let statusBreakdownChartInstance = null;
+    let pricingChartInstance = null;
+    let isDark = true;
+
+    function getFieldFuzzy(row, keywords) {
+      if (!row || typeof row !== "object") return "";
+      for (const kw of keywords) {
+        if (row[kw] !== undefined && row[kw] !== null && String(row[kw]).trim() !== "") {
+          return row[kw];
+        }
+      }
+      const keys = Object.keys(row);
+      for (const k of keys) {
+        const cleanKey = String(k).replace(/[\s\\\/_]+/g, "").toLowerCase();
+        for (const kw of keywords) {
+          const cleanKw = String(kw).replace(/[\s\\\/_]+/g, "").toLowerCase();
+          if (cleanKey.includes(cleanKw) && row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") {
+            return row[k];
+          }
+        }
+      }
+      return "";
+    }
+
+    function normalizeBranchName(b) {
+      const s = String(b || "").trim();
+      if (!s) return "غير محدد";
+      if (s.includes("مرغني") || s.includes("ميرغني")) return "الميرغني";
+      if (s.includes("غمر")) return "غمرة";
+      if (s.includes("زايد")) return "الشيخ زايد";
+      if (s.includes("مهندسين")) return "المهندسين";
+      if (s.includes("نصر")) return "مدينة نصر";
+      return s;
+    }
+
+    function normalizeSalespersons(spInput) {
+      const rawList = Array.isArray(spInput) ? spInput : String(spInput || "").split("/");
+      const out = [];
+      for (const item of rawList) {
+        const p = String(item || "").replace(/[\r\n]/g, "").trim();
+        if (!p) continue;
+        if (p.includes("محمد مصطفى") || p.includes("محمد مصطفي")) out.push("محمد مصطفى");
+        else if (p.includes("محمود هاشم") || p.includes("محمود هشام")) out.push("محمود هاشم");
+        else if (p.includes("كريم")) out.push("كريم صبحي");
+        else if (p.includes("عمرو")) out.push("عمرو قاسم");
+        else if (p.includes("سامر")) out.push("سامر");
+        else out.push(p);
+      }
+      return out.length ? out : ["غير محدد"];
+    }
+
+    function parsePriceValue(val) {
+      if (val === null || val === undefined || val === "") return null;
+      if (typeof val === "number") return isFinite(val) && val > 0 ? val : null;
+      let s = String(val).trim();
+      if (!s || s.includes("محتاج يسعر")) return null;
+      const ar = "٠١٢٣٤٥٦٧٨٩";
+      const en = "0123456789";
+      for (let i = 0; i < 10; i++) s = s.replaceAll(ar[i], en[i]);
+
+      if (s.includes("مليون")) {
+        const parts = s.replaceAll("مليون", " ").trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return 1000000;
+        if (parts.length === 1) {
+          const n = parseFloat(parts[0]);
+          if (isNaN(n)) return 1000000;
+          return n < 10 ? n * 1000000 : 1000000 + n * 1000;
+        }
+        return (parseFloat(parts[0]) || 0) * 1000000 + (parseFloat(parts[1]) || 0) * 1000;
+      }
+
+      s = s.replaceAll("ألف", "").replaceAll("الف", "").trim();
+      if ((s.match(/\./g) || []).length >= 2) {
+        s = s.replaceAll(".", "");
+      } else if (s.includes(".")) {
+        const parts = s.split(".");
+        if (parts[0].length === 1 && parts[1] !== "0" && parts[1].length <= 2) {
+          const n = parseFloat(s);
+          if (!isNaN(n)) return n * 1000000;
+        }
+      }
+
+      const num = parseFloat(s);
+      if (isNaN(num) || num <= 0) return null;
+      if (num === 18000) return 980000;
+      if (num >= 50 && num < 10000) return num * 1000;
+      return num;
+    }
+
+    function formatEGP(num) {
+      if (num === null || num === undefined || isNaN(num)) return "—";
+      return Math.round(num).toLocaleString("en-US") + " ج.م";
+    }
+
+    function showBanner(type, message) {
+      const banner = document.getElementById("statusBanner");
+      const inner = document.getElementById("statusBannerInner");
+      banner.classList.remove("hidden");
+      if (type === "success") {
+        inner.className = "px-3.5 py-2 rounded-lg text-xs font-bold border bg-emerald-950/80 border-emerald-700 text-emerald-300";
+      } else if (type === "warn") {
+        inner.className = "px-3.5 py-2 rounded-lg text-xs font-bold border bg-amber-950/80 border-amber-700 text-amber-300";
+      } else {
+        inner.className = "px-3.5 py-2 rounded-lg text-xs font-bold border bg-rose-950/80 border-rose-700 text-rose-300";
+      }
+      inner.textContent = message;
+    }
+
+    function mapSheetRows(rawRows) {
+      const mapped = [];
+      for (let i = 0; i < rawRows.length; i++) {
+        const r = rawRows[i];
+        if (!r || typeof r !== "object") continue;
+
+        const branchRaw = getFieldFuzzy(r, ["الفرع", "Branch", "branch"]);
+        const carRaw = getFieldFuzzy(r, ["السيارة الواردة", "نوع السيارة", "السيارة", "Car", "car"]);
+        const branchClean = normalizeBranchName(branchRaw);
+        const carClean = String(carRaw || "").trim();
+
+        if (!carClean && branchClean === "غير محدد") continue;
+        if (carClean === "السيارة الواردة" || carClean === "نوع السيارة") continue;
+
+        const spRaw = getFieldFuzzy(r, ["مسؤول الفرع", "مسؤول المبيعات", "Salesperson"]);
+        const statusRaw = String(getFieldFuzzy(r, ["متاحه \\ مباعه", "متاحة / مباعة", "متاحه / مباعه", "الحالة", "Status"]) || "").trim().toLowerCase();
+        const sold = Boolean(r._isGreenRow) || statusRaw.includes("sold") || statusRaw.includes("مباع") || statusRaw.includes("تم");
+
+        const estVal = parsePriceValue(getFieldFuzzy(r, ["السعر التقديري", "التقديري", "Estimated"]));
+        const commVal = parsePriceValue(getFieldFuzzy(r, ["اعلى سعر تجارى", "أعلى سعر تجاري", "Commercial"]));
+        let execVal = parsePriceValue(getFieldFuzzy(r, ["سعر التنفيذ", "التنفيذ", "Executed"]));
+        if (sold && execVal === null && commVal !== null) execVal = commVal;
+
+        mapped.push({
+          id: mapped.length + 1,
+          date: String(getFieldFuzzy(r, ["التاريخ", "Date"]) || "").trim(),
+          branch: branchClean,
+          salespersons: normalizeSalespersons(spRaw),
+          car: carClean || "غير محدد",
+          year: String(getFieldFuzzy(r, ["الموديل", "سنة الصنع", "Year"]) || "").trim(),
+          condition: String(getFieldFuzzy(r, ["حالة السيارة", "الحالة الفنية", "Condition"]) || "").trim(),
+          est: estVal,
+          comm: commVal,
+          exec: execVal,
+          dealer: String(getFieldFuzzy(r, ["اسم التاجر", "التاجر", "Dealer"]) || "").trim(),
+          sold
+        });
+      }
+      return mapped;
+    }
+
+    function buildRequestUrl(rawUrl, key) {
+      let url = String(rawUrl || "").trim();
+      if (!url) return "";
+      if (url.includes("/macros/s/") && key) {
+        const sep = url.includes("?") ? "&" : "?";
+        if (!url.includes("key=")) url += sep + "key=" + encodeURIComponent(key);
+      }
+      return url;
+    }
+
+    function fetchViaJsonp(url) {
+      return new Promise((resolve, reject) => {
+        const cbName = "__jsonpcb_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+        const script = document.createElement("script");
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error("انتهت مهلة الاتصال بـ Apps Script"));
+        }, 12000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          if (script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[cbName]; } catch (e) { window[cbName] = undefined; }
+        }
+
+        window[cbName] = function(data) {
+          cleanup();
+          resolve(data);
+        };
+
+        script.onerror = function() {
+          cleanup();
+          reject(new Error("فشل الاتصال عبر JSONP"));
+        };
+
+        const sep = url.includes("?") ? "&" : "?";
+        script.src = url + sep + "callback=" + encodeURIComponent(cbName);
+        document.body.appendChild(script);
+      });
+    }
+
+    async function syncFromUrl() {
+      const rawUrl = document.getElementById("syncUrlInput").value.trim();
+      const key = document.getElementById("secretKeyInput").value.trim();
+      if (!rawUrl) {
+        showBanner("error", "أدخل رابط Web App (.../exec) أولاً.");
+        return;
+      }
+
+      const targetUrl = buildRequestUrl(rawUrl, key);
+      const btn = document.getElementById("syncBtn");
+      btn.disabled = true;
+      btn.textContent = "⏳ جاري المزامنة...";
+
+      try {
+        let payload = null;
+        try {
+          const res = await fetch(targetUrl, { method: "GET", cache: "no-store" });
+          if (res.ok) payload = JSON.parse(await res.text());
+          else payload = await fetchViaJsonp(targetUrl);
+        } catch (e) {
+          payload = await fetchViaJsonp(targetUrl);
+        }
+
+        if (!payload || payload.ok === false) {
+          showBanner("error", "تم الوصول للسكربت ولكن تم رفض الطلب: " + ((payload && payload.error) || "تحقق من المفتاح السري"));
+          return;
+        }
+
+        const rawRows = Array.isArray(payload.rows) ? payload.rows : (Array.isArray(payload) ? payload : []);
+        const mapped = mapSheetRows(rawRows);
+        if (!mapped.length) {
+          showBanner("warn", "تم الاتصال بنجاح ولكن لم يتم العثور على صفوف تحتوي على بيانات سيارات.");
+          return;
+        }
+
+        carsData = mapped;
+        localStorage.setItem("carsDashboardData_v4", JSON.stringify(carsData));
+        localStorage.setItem("carsDashboardSyncUrl", rawUrl);
+        localStorage.setItem("carsDashboardSecretKey", key);
+        document.getElementById("lastSyncLabel").textContent = "آخر مزامنة: " + new Date().toLocaleTimeString("ar-EG");
+        showBanner("success", "✅ تمت المزامنة بنجاح! تم تحميل " + carsData.length + " سيارة من ورقة (" + (payload.sheetName || "سجل الوارد اليومي") + ").");
+        renderAll();
+      } catch (err) {
+        showBanner("error", "تعذر إتمام المزامنة: " + (err && err.message ? err.message : "خطأ في الاتصال"));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "☁ مزامنة فورية من الرابط";
+      }
+    }
+
+    function handleCsvUpload(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const lines = String(e.target.result || "").split(/\r?\n/).filter(l => l.trim().length > 0);
+        if (lines.length < 2) return;
+        const headers = parseCsvLine(lines[0]).map(h => h.trim());
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvLine(lines[i]);
+          const obj = {};
+          headers.forEach((h, idx) => { if (h) obj[h] = cols[idx] ?? ""; });
+          rows.push(obj);
+        }
+        const mapped = mapSheetRows(rows);
+        if (mapped.length) {
+          carsData = mapped;
+          localStorage.setItem("carsDashboardData_v4", JSON.stringify(carsData));
+          document.getElementById("lastSyncLabel").textContent = "آخر تحديث من CSV: " + new Date().toLocaleTimeString("ar-EG");
+          showBanner("success", "✅ تم تحميل " + carsData.length + " سيارة من CSV.");
+          renderAll();
+        }
+      };
+      reader.readAsText(file, "UTF-8");
+    }
+
+    function parseCsvLine(line) {
+      const res = [];
+      let cur = "";
+      let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (q && line[i + 1] === '"') { cur += '"'; i++; }
+          else q = !q;
+        } else if (ch === "," && !q) {
+          res.push(cur); cur = "";
+        } else cur += ch;
+      }
+      res.push(cur);
+      return res;
+    }
+
+    function toggleAutoSync() {
+      const checked = document.getElementById("autoSyncCheckbox").checked;
+      if (autoSyncTimer) { clearInterval(autoSyncTimer); autoSyncTimer = null; }
+      if (checked) {
+        syncFromUrl();
+        autoSyncTimer = setInterval(syncFromUrl, 30000);
+        showBanner("success", "تم تفعيل التحديث التلقائي كل 30 ثانية.");
+      }
+    }
+
+    function toggleSold(id) {
+      const item = carsData.find(c => c.id === id);
+      if (!item) return;
+      item.sold = !item.sold;
+      if (item.sold && (item.exec === null || isNaN(item.exec))) item.exec = item.comm || item.est || 0;
+      localStorage.setItem("carsDashboardData_v4", JSON.stringify(carsData));
+      renderAll();
+    }
+
+    function openAddModal() {
+      const m = document.getElementById("addModal");
+      m.classList.remove("hidden"); m.classList.add("flex");
+    }
+
+    function closeAddModal() {
+      const m = document.getElementById("addModal");
+      m.classList.add("hidden"); m.classList.remove("flex");
+    }
+
+    function saveNewCar() {
+      const car = document.getElementById("newCar").value.trim();
+      if (!car) return;
+      const sold = document.getElementById("newSold").value === "true";
+      const est = parsePriceValue(document.getElementById("newEst").value);
+      const comm = parsePriceValue(document.getElementById("newComm").value);
+      carsData.unshift({
+        id: carsData.reduce((mx, c) => Math.max(mx, c.id), 0) + 1,
+        date: new Date().toLocaleDateString("en-GB"),
+        branch: normalizeBranchName(document.getElementById("newBranch").value),
+        salespersons: normalizeSalespersons(document.getElementById("newSp").value),
+        car,
+        year: document.getElementById("newYear").value.trim(),
+        condition: document.getElementById("newCond").value.trim(),
+        est, comm,
+        exec: sold ? (comm || est || 0) : null,
+        dealer: document.getElementById("newDealer").value.trim(),
+        sold
+      });
+      localStorage.setItem("carsDashboardData_v4", JSON.stringify(carsData));
+      closeAddModal();
+      renderAll();
+    }
+
+    function exportCSV() {
+      const headers = ["#", "التاريخ", "الفرع", "مسؤول المبيعات", "السيارة الواردة", "الموديل", "الحالة الفنية", "التقديري", "أعلى تجاري", "التنفيذ", "التاجر", "الحالة"];
+      const lines = [headers.join(",")];
+      carsData.forEach(c => {
+        lines.push([
+          c.id, c.date, c.branch, c.salespersons.join(" / "), c.car, c.year, c.condition,
+          c.est ?? "", c.comm ?? "", c.exec ?? "", c.dealer, c.sold ? "Sold" : "Available"
+        ].map(v => '"' + String(v ?? "").replaceAll('"', '""') + '"').join(","));
+      });
+      const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "cars_dashboard_analytics.csv"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function toggleTheme() {
+      isDark = !isDark;
+      document.getElementById("bodyEl").className = isDark
+        ? "bg-slate-950 text-slate-100 min-h-screen transition-colors duration-200"
+        : "bg-slate-100 text-slate-900 min-h-screen transition-colors duration-200";
+      document.getElementById("themeBtn").textContent = isDark ? "🌙" : "☀️";
+    }
+
+    function populateFilterDropdowns() {
+      const bSel = document.getElementById("branchFilter");
+      const sSel = document.getElementById("spFilter");
+      const dSel = document.getElementById("dealerFilter");
+      const curB = bSel.value;
+      const curS = sSel.value;
+      const curD = dSel.value;
+
+      const branches = [...new Set(carsData.map(c => c.branch))].sort();
+      const sps = [...new Set(carsData.flatMap(c => c.salespersons))].sort();
+      const dealers = [...new Set(carsData.map(c => c.dealer).filter(Boolean))].sort();
+
+      bSel.innerHTML = '<option value="ALL">كل الفروع</option>' + branches.map(b => `<option value="${b}">${b}</option>`).join("");
+      sSel.innerHTML = '<option value="ALL">كل مسؤولي المبيعات</option>' + sps.map(s => `<option value="${s}">${s}</option>`).join("");
+      dSel.innerHTML = '<option value="ALL">كل التجار</option>' + dealers.map(d => `<option value="${d}">${d}</option>`).join("");
+
+      if (branches.includes(curB)) bSel.value = curB;
+      if (sps.includes(curS)) sSel.value = curS;
+      if (dealers.includes(curD)) dSel.value = curD;
+    }
+
+    function getFilteredCars() {
+      const q = document.getElementById("searchInput").value.trim().toLowerCase();
+      const bF = document.getElementById("branchFilter").value;
+      const sF = document.getElementById("spFilter").value;
+      const dF = document.getElementById("dealerFilter").value;
+      const stF = document.getElementById("statusFilter").value;
+
+      return carsData.filter(c => {
+        if (bF !== "ALL" && c.branch !== bF) return false;
+        if (sF !== "ALL" && !c.salespersons.includes(sF)) return false;
+        if (dF !== "ALL" && c.dealer !== dF) return false;
+        if (stF === "SOLD" && !c.sold) return false;
+        if (stF === "AVAILABLE" && c.sold) return false;
+        if (stF === "HOT" && (c.sold || !c.dealer)) return false;
+        if (stF === "UNPRICED" && (c.est !== null || c.comm !== null)) return false;
+        if (q) {
+          const hay = `${c.car} ${c.year} ${c.branch} ${c.salespersons.join(" ")} ${c.dealer} ${c.condition}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderAll() {
+      populateFilterDropdowns();
+      const filtered = getFilteredCars();
+
+      const total = carsData.length;
+      const soldCars = carsData.filter(c => c.sold);
+      const availCars = carsData.filter(c => !c.sold);
+      const soldCount = soldCars.length;
+      const availCount = availCars.length;
+      const convRate = total ? ((soldCount / total) * 100).toFixed(1) : "0.0";
+
+      const execTotal = soldCars.reduce((a, c) => a + (c.exec || 0), 0);
+      const estAvailTotal = availCars.reduce((a, c) => a + (c.est || 0), 0);
+      const commAvailTotal = availCars.reduce((a, c) => a + (c.comm || 0), 0);
+      const hotCount = availCars.filter(c => c.dealer).length;
+      const sharedDealsCount = carsData.filter(c => c.salespersons.length > 1).length;
+      const sharedSoldCount = soldCars.filter(c => c.salespersons.length > 1).length;
+      const unpricedBothCount = availCars.filter(c => c.est === null && c.comm === null).length;
+      const missingCommCount = availCars.filter(c => c.comm === null).length;
+      const avgExecVal = soldCount ? execTotal / soldCount : 0;
+
+      // Primary 4 KPI Cards
+      document.getElementById("kpiSection").innerHTML = `
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div class="text-xs text-slate-400 font-bold">إجمالي السيارات الواردة</div>
+          <div class="text-2xl font-extrabold text-white mt-1">${total} <span class="text-xs font-normal text-slate-400">سيارة</span></div>
+          <div class="text-xs text-slate-400 mt-2">متاحة: <span class="text-amber-300 font-bold">${availCount}</span> • منفذة: <span class="text-emerald-400 font-bold">${soldCount}</span></div>
+        </div>
+        <div class="bg-slate-900 border border-emerald-800/50 rounded-2xl p-4">
+          <div class="text-xs text-emerald-400 font-bold">المبيعات المنفذة (Sold)</div>
+          <div class="text-2xl font-extrabold text-emerald-300 mt-1">${soldCount} <span class="text-xs font-normal text-slate-400">(${convRate}%)</span></div>
+          <div class="text-xs text-slate-300 mt-2">إجمالي التنفيذ: <span class="font-bold text-white">${formatEGP(execTotal)}</span></div>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div class="text-xs text-sky-400 font-bold">قيمة المخزون المتاح التقديرية</div>
+          <div class="text-xl font-extrabold text-white mt-1">${formatEGP(estAvailTotal)}</div>
+          <div class="text-xs text-slate-400 mt-2">أعلى تجاري متاح: <span class="text-amber-300 font-bold">${formatEGP(commAvailTotal)}</span></div>
+        </div>
+        <div class="bg-slate-900 border border-amber-800/50 rounded-2xl p-4">
+          <div class="text-xs text-amber-400 font-bold">صفقات ساخنة (متاحة مع تاجر)</div>
+          <div class="text-2xl font-extrabold text-amber-300 mt-1">${hotCount} <span class="text-xs font-normal text-slate-400">صفقة</span></div>
+          <div class="text-xs text-slate-400 mt-2">مبيعات مشتركة (0.5): <span class="text-indigo-300 font-bold">${sharedDealsCount}</span> (${sharedSoldCount} منفذة)</div>
+        </div>
+      `;
+
+      // Secondary Pricing & Deal Analytics Strip
+      document.getElementById("pricingAnalyticsSection").innerHTML = `
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
+          <div class="text-[11px] text-slate-400 font-bold">متوسط سعر التنفيذ للصفقة</div>
+          <div class="text-base font-extrabold text-emerald-300 mt-0.5">${formatEGP(avgExecVal)}</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
+          <div class="text-[11px] text-slate-400 font-bold">متاحة بدون أعلى سعر تجاري</div>
+          <div class="text-base font-extrabold text-amber-300 mt-0.5">${missingCommCount} سيارة</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
+          <div class="text-[11px] text-slate-400 font-bold">متاحة بدون أي تسعير (تقديري/تجاري)</div>
+          <div class="text-base font-extrabold text-rose-300 mt-0.5">${unpricedBothCount} سيارة</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5">
+          <div class="text-[11px] text-slate-400 font-bold">إجمالي الصفقات المشتركة (0.5)</div>
+          <div class="text-base font-extrabold text-indigo-300 mt-0.5">${sharedDealsCount} سيارة</div>
+        </div>
+      `;
+
+      // Salesperson KPIs with 0.5 split
+      const spMap = {};
+      carsData.forEach(c => {
+        const w = 1 / c.salespersons.length;
+        c.salespersons.forEach(sp => {
+          if (!spMap[sp]) spMap[sp] = { name: sp, inbound: 0, sold: 0, execVal: 0, sharedCount: 0 };
+          spMap[sp].inbound += w;
+          if (c.salespersons.length > 1) spMap[sp].sharedCount += 1;
+          if (c.sold) {
+            spMap[sp].sold += w;
+            spMap[sp].execVal += (c.exec || 0) * w;
+          }
+        });
+      });
+
+      const spList = Object.values(spMap).sort((a, b) => b.sold - a.sold || b.inbound - a.inbound);
+      document.getElementById("salespersonTbody").innerHTML = spList.map(s => {
+        const avail = Math.max(0, s.inbound - s.sold);
+        const rate = s.inbound ? ((s.sold / s.inbound) * 100).toFixed(1) : "0.0";
+        return `
+          <tr class="hover:bg-slate-800/40">
+            <td class="py-2.5 px-2 font-bold text-white">
+              ${s.name}
+              ${s.sharedCount ? `<span class="mr-1 px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px]">${s.sharedCount} مشتركة</span>` : ""}
+            </td>
+            <td class="py-2.5 px-2 text-center font-semibold text-sky-300">${Number.isInteger(s.inbound) ? s.inbound : s.inbound.toFixed(1)}</td>
+            <td class="py-2.5 px-2 text-center font-extrabold text-emerald-400">${Number.isInteger(s.sold) ? s.sold : s.sold.toFixed(1)}</td>
+            <td class="py-2.5 px-2 text-center text-slate-300">${Number.isInteger(avail) ? avail : avail.toFixed(1)}</td>
+            <td class="py-2.5 px-2 text-center text-amber-300 font-bold">${rate}%</td>
+            <td class="py-2.5 px-2 font-bold text-slate-200">${formatEGP(s.execVal)}</td>
+          </tr>
+        `;
+      }).join("");
+
+      // Branch Analytics Table
+      const branches = [...new Set(carsData.map(c => c.branch))].sort();
+      const branchStats = branches.map(b => {
+        const bCars = carsData.filter(c => c.branch === b);
+        const bSold = bCars.filter(c => c.sold);
+        const bAvail = bCars.filter(c => !c.sold);
+        const bExec = bSold.reduce((a, c) => a + (c.exec || 0), 0);
+        const bEstAvail = bAvail.reduce((a, c) => a + (c.est || 0), 0);
+        const bRate = bCars.length ? ((bSold.length / bCars.length) * 100).toFixed(1) : "0.0";
+        return { name: b, inbound: bCars.length, sold: bSold.length, avail: bAvail.length, rate: bRate, exec: bExec, estAvail: bEstAvail };
+      }).sort((a, b) => b.sold - a.sold || b.inbound - a.inbound);
+
+      document.getElementById("branchAnalyticsTbody").innerHTML = branchStats.map(b => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2.5 px-2 font-bold text-sky-300">${b.name}</td>
+          <td class="py-2.5 px-2 text-center text-white font-semibold">${b.inbound}</td>
+          <td class="py-2.5 px-2 text-center text-emerald-400 font-extrabold">${b.sold}</td>
+          <td class="py-2.5 px-2 text-center text-amber-300">${b.avail}</td>
+          <td class="py-2.5 px-2 text-center text-slate-200 font-bold">${b.rate}%</td>
+          <td class="py-2.5 px-2 text-emerald-300 font-bold">${formatEGP(b.exec)}</td>
+          <td class="py-2.5 px-2 text-slate-300">${formatEGP(b.estAvail)}</td>
+        </tr>
+      `).join("");
+
+      // Dealers Analytics Table
+      const dealerMap = {};
+      carsData.forEach(c => {
+        const dName = (c.dealer || "").trim();
+        if (!dName) return;
+        if (!dealerMap[dName]) dealerMap[dName] = { name: dName, total: 0, sold: 0, hot: 0, execVal: 0 };
+        dealerMap[dName].total += 1;
+        if (c.sold) {
+          dealerMap[dName].sold += 1;
+          dealerMap[dName].execVal += (c.exec || 0);
+        } else {
+          dealerMap[dName].hot += 1;
+        }
+      });
+      const dealerList = Object.values(dealerMap).sort((a, b) => b.sold - a.sold || b.hot - a.hot || b.total - a.total);
+      document.getElementById("dealersTbody").innerHTML = dealerList.length ? dealerList.slice(0, 10).map(d => `
+        <tr class="hover:bg-slate-800/40">
+          <td class="py-2 px-2 font-bold text-white">${d.name}</td>
+          <td class="py-2 px-2 text-center text-sky-300">${d.total}</td>
+          <td class="py-2 px-2 text-center text-emerald-400 font-extrabold">${d.sold}</td>
+          <td class="py-2 px-2 text-center text-amber-300 font-bold">${d.hot}</td>
+          <td class="py-2 px-2 text-slate-200 font-bold">${formatEGP(d.execVal)}</td>
+        </tr>
+      `).join("") : `<tr><td colspan="5" class="py-4 text-center text-slate-400">لا توجد بيانات تجار مسجلة</td></tr>`;
+
+      // Actionable Priorities
+      const lowestBranch = branchStats.length ? [...branchStats].sort((a, b) => a.sold - b.sold)[0] : null;
+      document.getElementById("actionItemsList").innerHTML = `
+        <div class="p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/40 text-amber-200">
+          <span class="font-extrabold">1. متابعة الصفقات الساخنة:</span> يوجد <span class="font-extrabold text-white">${hotCount}</span> سيارة متاحة مرتبطة بتاجر وجاهزة للتفاوض والإغلاق.
+        </div>
+        <div class="p-2.5 rounded-xl bg-sky-950/40 border border-sky-800/40 text-sky-200">
+          <span class="font-extrabold">2. استكمال التسعير:</span> هناك <span class="font-extrabold text-white">${missingCommCount}</span> سيارة متاحة بدون أعلى سعر تجاري (منها <span class="font-extrabold text-white">${unpricedBothCount}</span> بدون أي تسعير).
+        </div>
+        <div class="p-2.5 rounded-xl bg-purple-950/40 border border-purple-800/40 text-purple-200">
+          <span class="font-extrabold">3. دعم الفرع الأقل تنفيذاً:</span> ${lowestBranch ? `فرع <span class="font-extrabold text-white">${lowestBranch.name}</span> سجل <span class="font-extrabold text-white">${lowestBranch.sold}</span> منفذة من أصل ${lowestBranch.inbound} واردة.` : "لا توجد بيانات فروع."}
+        </div>
+      `;
+
+      // Cars Table
+      document.getElementById("tableCountLabel").textContent = `عرض ${filtered.length} من أصل ${total} سيارة`;
+      document.getElementById("carsTbody").innerHTML = filtered.map(c => {
+        const spHtml = c.salespersons.length > 1
+          ? `<span class="font-bold text-white">${c.salespersons.join(" / ")}</span> <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px]">0.5</span>`
+          : `<span>${c.salespersons[0]}</span>`;
+        const rowClass = c.sold ? "sold-row" : (c.dealer ? "hot-row hover:bg-slate-800/40" : "hover:bg-slate-800/40");
+
+        return `
+          <tr class="${rowClass}">
+            <td class="py-2 px-2 text-slate-400">${c.id}</td>
+            <td class="py-2 px-2 whitespace-nowrap text-slate-300">${c.date || "—"}</td>
+            <td class="py-2 px-2 whitespace-nowrap font-semibold text-sky-300">${c.branch}</td>
+            <td class="py-2 px-2">${spHtml}</td>
+            <td class="py-2 px-2 font-bold text-white">${c.car}</td>
+            <td class="py-2 px-2 text-center text-slate-300">${c.year || "—"}</td>
+            <td class="py-2 px-2 text-slate-300 max-w-[200px] truncate" title="${c.condition}">${c.condition || "—"}</td>
+            <td class="py-2 px-2 whitespace-nowrap text-slate-200">${formatEGP(c.est)}</td>
+            <td class="py-2 px-2 whitespace-nowrap text-amber-300">${formatEGP(c.comm)}</td>
+            <td class="py-2 px-2 whitespace-nowrap font-bold text-emerald-300">${c.sold ? formatEGP(c.exec) : "—"}</td>
+            <td class="py-2 px-2 whitespace-nowrap text-slate-300">${c.dealer || "—"}</td>
+            <td class="py-2 px-2 text-center whitespace-nowrap">
+              <button onclick="toggleSold(${c.id})" class="px-2 py-1 rounded bg-slate-800 hover:bg-emerald-600 text-[10px] font-bold transition">
+                ${c.sold ? "منفذة ✓" : "متاحة"}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      updateCharts(spList, branchStats, hotCount, unpricedBothCount, availCount, soldCount);
+    }
+
+    function updateCharts(spList, branchStats, hotCount, unpricedBothCount, availCount, soldCount) {
+      const chartFont = { family: "Cairo" };
+      const tickColor = "#94a3b8";
+      const gridColor = "rgba(148,163,184,0.12)";
+
+      // 1. Branch Inbound vs Sold
+      const bCtx = document.getElementById("branchChart").getContext("2d");
+      if (branchChartInstance) branchChartInstance.destroy();
+      branchChartInstance = new Chart(bCtx, {
+        type: "bar",
+        data: {
+          labels: branchStats.map(b => b.name),
+          datasets: [
+            { label: "الوارد", data: branchStats.map(b => b.inbound), backgroundColor: "rgba(56, 189, 248, 0.75)", borderRadius: 6 },
+            { label: "المنفذ", data: branchStats.map(b => b.sold), backgroundColor: "rgba(16, 185, 129, 0.85)", borderRadius: 6 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1", font: chartFont } } },
+          scales: {
+            x: { ticks: { color: tickColor, font: chartFont }, grid: { display: false } },
+            y: { ticks: { color: tickColor, font: chartFont }, grid: { color: gridColor } }
+          }
+        }
+      });
+
+      // 2. Salesperson 0.5 weighted Inbound vs Sold
+      const sCtx = document.getElementById("salesChart").getContext("2d");
+      if (salesChartInstance) salesChartInstance.destroy();
+      salesChartInstance = new Chart(sCtx, {
+        type: "bar",
+        data: {
+          labels: spList.map(s => s.name),
+          datasets: [
+            { label: "الوارد (0.5)", data: spList.map(s => Number(s.inbound.toFixed(1))), backgroundColor: "rgba(129, 140, 248, 0.75)", borderRadius: 6 },
+            { label: "المنفذ (0.5)", data: spList.map(s => Number(s.sold.toFixed(1))), backgroundColor: "rgba(16, 185, 129, 0.85)", borderRadius: 6 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1", font: chartFont } } },
+          scales: {
+            x: { ticks: { color: tickColor, font: chartFont }, grid: { display: false } },
+            y: { ticks: { color: tickColor, font: chartFont }, grid: { color: gridColor } }
+          }
+        }
+      });
+
+      // 3. Inventory Status Breakdown
+      const availWithoutDealer = Math.max(0, availCount - hotCount - unpricedBothCount);
+      const stCtx = document.getElementById("statusBreakdownChart").getContext("2d");
+      if (statusBreakdownChartInstance) statusBreakdownChartInstance.destroy();
+      statusBreakdownChartInstance = new Chart(stCtx, {
+        type: "doughnut",
+        data: {
+          labels: ["منفذة (Sold)", "صفقات ساخنة (مع تاجر)", "متاحة بدون تاجر", "ناقصة تسعير"],
+          datasets: [{
+            data: [soldCount, hotCount, availWithoutDealer, unpricedBothCount],
+            backgroundColor: [
+              "rgba(16, 185, 129, 0.85)",
+              "rgba(245, 158, 11, 0.85)",
+              "rgba(56, 189, 248, 0.75)",
+              "rgba(244, 63, 94, 0.75)"
+            ],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1", font: chartFont } } }
+        }
+      });
+
+      // 4. Average Estimated vs Commercial Price by Branch
+      const avgEstByBranch = branchStats.map(b => {
+        const vals = carsData.filter(c => c.branch === b.name && c.est !== null).map(c => c.est);
+        return vals.length ? Math.round(vals.reduce((a, x) => a + x, 0) / vals.length) : 0;
+      });
+      const avgCommByBranch = branchStats.map(b => {
+        const vals = carsData.filter(c => c.branch === b.name && c.comm !== null).map(c => c.comm);
+        return vals.length ? Math.round(vals.reduce((a, x) => a + x, 0) / vals.length) : 0;
+      });
+
+      const pCtx = document.getElementById("pricingChart").getContext("2d");
+      if (pricingChartInstance) pricingChartInstance.destroy();
+      pricingChartInstance = new Chart(pCtx, {
+        type: "bar",
+        data: {
+          labels: branchStats.map(b => b.name),
+          datasets: [
+            { label: "متوسط التقديري", data: avgEstByBranch, backgroundColor: "rgba(56, 189, 248, 0.75)", borderRadius: 6 },
+            { label: "متوسط أعلى تجاري", data: avgCommByBranch, backgroundColor: "rgba(245, 158, 11, 0.8)", borderRadius: 6 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#cbd5e1", font: chartFont } } },
+          scales: {
+            x: { ticks: { color: tickColor, font: chartFont }, grid: { display: false } },
+            y: { ticks: { color: tickColor, font: chartFont }, grid: { color: gridColor } }
+          }
+        }
+      });
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const savedUrl = localStorage.getItem("carsDashboardSyncUrl");
+      const savedKey = localStorage.getItem("carsDashboardSecretKey");
+      const savedData = localStorage.getItem("carsDashboardData_v4") || localStorage.getItem("carsDashboardData_v3");
+      if (savedUrl) document.getElementById("syncUrlInput").value = savedUrl;
+      if (savedKey) document.getElementById("secretKeyInput").value = savedKey;
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData);
+          if (Array.isArray(parsed)) carsData = parsed;
+        } catch (e) {}
+      }
+      renderAll();
+      if (savedUrl) {
+        syncFromUrl();
+      }
+    });
+  </script>
+</body>
+</html>
